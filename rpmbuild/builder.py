@@ -115,10 +115,10 @@ def checker():
     packages = RPMINFO['packages']
     arch = RPMINFO['arch']
     package_list = []
-    project_package_name = '%s-%s-%s%s.rpm' % (project, verion, release, dist)
+    project_package_name = 'python-%s-%s-%s%s.rpm' % (project, verion, release, dist)
     package_list.append(os.path.join(RPMSPATH, arch, project_package_name))
     for package in packages:
-        package_name = '%s-%s-%s-%s%s.rpm' % (project, package, verion, release, dist)
+        package_name = 'python-%s-%s-%s-%s%s.rpm' % (project, package, verion, release, dist)
         path = os.path.join(RPMSPATH, arch, package_name)
         package_list.append(path)
     for path in package_list:
