@@ -20,7 +20,6 @@ TAR = '/bin/tar'
 RPMBUILD = '/usr/bin/rpmbuild'
 RELEASEVERSIONKEY = 'RELEASEVERSION'
 RPMVERSIONKEY = 'RPMVERSION'
-FINDER = functools.partial(re.findall, re.compile('BuildArch:\s+?([\S]+)\s|%package\s+?([\S]+)\s'))
 FINDERREGX = re.compile('BuildArch:\s+?([\S]+)\s|%package\s+?([\S]+)\s')
 
 HOME = os.environ['HOME']
@@ -48,7 +47,8 @@ RPMINFO = {'arch': 'noarch',
            'packages': []}
 
 
-def findvaluefomspce(buffer):
+def findvaluefromspce(buffer):
+    # 从spec文件中找出arch指和其他安装包的名字
     noarch = None
     packages = []
     for f in re.findall(FINDERREGX, buffer):
@@ -61,6 +61,7 @@ def findvaluefomspce(buffer):
 
 
 def get_projcet_version(project):
+    # 从init文件中获取版本号
     path = os.path.join(WORKSPACE, project, '__init__.py')
     with open(path, 'rb') as f:
         buffer = f.read(4096)
@@ -85,8 +86,8 @@ def create_source():
     # module = sys.modules[project]
     # version = module.__version__
     # os.chdir(pwd)
-
     version = get_projcet_version(project)
+
     RPMINFO['project'] = project
     RPMINFO['version'] = version
     project_with_version = '%s-%s' % (project, version)
@@ -96,7 +97,7 @@ def create_source():
     args = [TAR, '--exclude=.git', '--exclude=.gitignore', '--exclude=.svn', '-zcf', dst, '-C']
     args.append(_pwd)
     args.append(path)
-    # 压缩时替换文件夹名称
+    # 压缩时替换文件夹名称,带上版本号
     args.append('--transform=s/^%s/%s/' % (project, project_with_version))
     sub = subprocess.Popen(executable=TAR, args=args, stderr=subprocess.PIPE)
     if sub.wait() != 0:
@@ -114,7 +115,7 @@ def create_spec():
     dst = os.path.join(RPMSPECPATH, specfile)
     with open(specfile, 'rb') as f:
         specbuffer = f.read()
-    arch, packages = findvaluefomspce(specbuffer)
+    arch, packages = findvaluefromspce(specbuffer)
     if arch and arch != RPMINFO['arch']:
         RPMINFO['arch'] = arch
     RPMINFO['packages'].extend(packages)
@@ -123,6 +124,7 @@ def create_spec():
     regex = re.compile("(%s)" % "|".join(map(re.escape, replacemap.keys())))
     specbuffer = regex.sub(lambda mo: replacemap[mo.string[mo.start():mo.end()]],
                            specbuffer)
+    # 生成spec文件
     with open(dst, 'wb') as f:
         f.write(specbuffer)
     print 'create spec %s success' % dst
@@ -149,15 +151,18 @@ def checker():
     packages = RPMINFO['packages']
     arch = RPMINFO['arch']
     package_list = []
-    project_package_name = '%s%s-%s-%s%s.rpm' % (prefix, project, version, release, dist)
+    project_package_name = '%s%s-%s-%s.%s.%s.rpm' % (prefix, project, version, release, dist, arch)
     package_list.append(os.path.join(RPMSPATH, arch, project_package_name))
+    # 额外安装包
     for package in packages:
-        package_name = '%s%s-%s-%s-%s%s.rpm' % (prefix, project, package, version, release, dist)
+        package_name = '%s%s-%s-%s-%s.%s.%s.rpm' % (prefix, project, package, version, release, dist, arch)
         path = os.path.join(RPMSPATH, arch, package_name)
         package_list.append(path)
     for path in package_list:
         if os.path.exists(path):
             print 'build package: %s' % path
+        else:
+            print path, 'not found'
 
 
 def main():
