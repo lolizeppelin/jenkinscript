@@ -56,7 +56,7 @@ def findvaluefromspce(buffer):
             if noarch is not None:
                 raise RuntimeError('BuildArch value more then one')
         if f[1]:
-            packages.append(f[0])
+            packages.append(f[1])
     return noarch, packages
 
 
@@ -135,8 +135,9 @@ def build_rpm(specfile):
     # 执行rpmbuild
     args = [RPMBUILD, '--quiet', '-bb']
     args.append(specfile)
-    sub = subprocess.Popen(executable=RPMBUILD, args=args)
+    sub = subprocess.Popen(executable=RPMBUILD, args=args, stderr=subprocess.PIPE)
     if sub.wait() != 0:
+        print sub.stderr.read()
         raise RuntimeError('Call rpmbuild fail')
     print 'call rpm build success'
 
