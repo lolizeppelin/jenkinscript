@@ -93,7 +93,7 @@ def create_source():
     project_with_version = '%s-%s' % (project, version)
     print 'Project %s with version %s-%s' % (project, version, RPMINFO['release'])
 
-    dst = os.path.join(RPMSOURCEPATH, '%s.tar.gz' % path)
+    dst = os.path.join(RPMSOURCEPATH, '%s.tar.gz' % project_with_version)
     args = [TAR, '--exclude=.git', '--exclude=.gitignore', '--exclude=.svn', '-zcf', dst, '-C']
     args.append(_pwd)
     args.append(path)
