@@ -19,8 +19,9 @@ import subprocess
 TAR = '/bin/tar'
 RPMBUILD = '/usr/bin/rpmbuild'
 RELEASEVERSIONKEY = 'RELEASEVERSION'
-ARCHFINDER = functools.partial(re.findall, re.compile('BuildArch:\s+?([\S]+)\s'))
-PACKAGEFINDER = functools.partial(re.findall, re.compile('%package\s+?([\S]+)\s'))
+RPMVERSIONKEY = 'RPMVERSION'
+FINDER = functools.partial(re.findall, re.compile('BuildArch:\s+?([\S]+)\s|%package\s+?([\S]+)\s'))
+FINDERREGX = re.compile('BuildArch:\s+?([\S]+)\s|%package\s+?([\S]+)\s')
 
 HOME = os.environ['HOME']
 WORKSPACE = os.environ['WORKSPACE']
@@ -40,20 +41,33 @@ RPMSPATH = os.path.join(HOME, 'rpmbuild', 'RPMS')
 
 RPMINFO = {'arch': 'noarch',
            'project': None,
-           'verion': None,
+           'version': None,
            'release': os.environ[RELEASEVERSIONKEY],
            'dist': 'el6',
+           'prefix': os.environ.get('PACKAGEPREFIX', ''),
            'packages': []}
 
 
-def archfinder(buffer):
-    # 找Arch
-    return ARCHFINDER(buffer)[0]
+def findvaluefomspce(buffer):
+    noarch = None
+    packages = []
+    for f in re.findall(FINDERREGX, buffer):
+        if f[0]:
+            if noarch is not None:
+                raise RuntimeError('BuildArch value more then one')
+        if f[1]:
+            packages.append(f[0])
+    return noarch, packages
 
 
-def packagesfinder(buffer):
-    # 派生生成的包
-    return PACKAGEFINDER(buffer)
+def get_projcet_version(project):
+    path = os.path.join(WORKSPACE, project, '__init__.py')
+    with open(path, 'rb') as f:
+        buffer = f.read(4096)
+    versions = re.findall('^__version__[\s]{0,}?=[\s]{0,}?\'(\S+?)\'', buffer)
+    if len(versions) > 1:
+        raise RuntimeError('version in file more then one')
+    return versions[0]
 
 
 def create_source():
@@ -61,14 +75,29 @@ def create_source():
     _pwd, path = os.path.split(WORKSPACE)
     if not path:
         raise RuntimeError('package path is empty')
-    project, verion = path.split('-')
+    project = path
+
+    # 载入项目代码获取version
+    # pwd = os.getcwd()
+    # os.chdir(WORKSPACE)
+    # print os.getcwd()
+    # __import__(project)
+    # module = sys.modules[project]
+    # version = module.__version__
+    # os.chdir(pwd)
+
+    version = get_projcet_version(project)
     RPMINFO['project'] = project
-    RPMINFO['verion'] = verion
-    print 'Project %s with version %s-%s' % (project, verion, RPMINFO['release'])
+    RPMINFO['version'] = version
+    project_with_version = '%s-%s' % (project, version)
+    print 'Project %s with version %s-%s' % (project, version, RPMINFO['release'])
+
     dst = os.path.join(RPMSOURCEPATH, '%s.tar.gz' % path)
     args = [TAR, '--exclude=.git', '--exclude=.gitignore', '--exclude=.svn', '-zcf', dst, '-C']
     args.append(_pwd)
     args.append(path)
+    # 压缩时替换文件夹名称
+    args.append('--transform=s/^%s/%s/' % (project, project_with_version))
     sub = subprocess.Popen(executable=TAR, args=args, stderr=subprocess.PIPE)
     if sub.wait() != 0:
         print sub.stderr.read()
@@ -85,11 +114,15 @@ def create_spec():
     dst = os.path.join(RPMSPECPATH, specfile)
     with open(specfile, 'rb') as f:
         specbuffer = f.read()
-    arch = archfinder(specbuffer)
-    if arch != RPMINFO['arch']:
+    arch, packages = findvaluefomspce(specbuffer)
+    if arch and arch != RPMINFO['arch']:
         RPMINFO['arch'] = arch
-    RPMINFO['packages'].extend(packagesfinder(specbuffer))
-    specbuffer = specbuffer.replace(RELEASEVERSIONKEY, RPMINFO['release'])
+    RPMINFO['packages'].extend(packages)
+    # 替换spec文件中的version和release
+    replacemap = {RELEASEVERSIONKEY : RPMINFO['release'], RPMVERSIONKEY : RPMINFO['version']}
+    regex = re.compile("(%s)" % "|".join(map(re.escape, replacemap.keys())))
+    specbuffer = regex.sub(lambda mo: replacemap[mo.string[mo.start():mo.end()]],
+                           specbuffer)
     with open(dst, 'wb') as f:
         f.write(specbuffer)
     print 'create spec %s success' % dst
@@ -108,17 +141,18 @@ def build_rpm(specfile):
 
 def checker():
     # 检查生成的rpm包
+    prefix = RPMINFO['prefix']
     project = RPMINFO['project']
-    verion = RPMINFO['verion']
+    version = RPMINFO['version']
     release = RPMINFO['release']
     dist = RPMINFO['dist']
     packages = RPMINFO['packages']
     arch = RPMINFO['arch']
     package_list = []
-    project_package_name = 'python-%s-%s-%s%s.rpm' % (project, verion, release, dist)
+    project_package_name = '%s%s-%s-%s%s.rpm' % (prefix, project, version, release, dist)
     package_list.append(os.path.join(RPMSPATH, arch, project_package_name))
     for package in packages:
-        package_name = 'python-%s-%s-%s-%s%s.rpm' % (project, package, verion, release, dist)
+        package_name = '%s%s-%s-%s-%s%s.rpm' % (prefix, project, package, version, release, dist)
         path = os.path.join(RPMSPATH, arch, package_name)
         package_list.append(path)
     for path in package_list:
