@@ -13,11 +13,14 @@ Release:        %{_release}%{?dist}
 import os
 import re
 import sys
-import functools
+import shutil
 import subprocess
 
 TAR = '/bin/tar'
 RPMBUILD = '/usr/bin/rpmbuild'
+CREATEREPO = '/usr/bin/createrepo'
+DEPLOYPATH = '/home/centos/goputils'
+TME = '/tmp'
 RELEASEVERSIONKEY = 'RELEASEVERSION'
 RPMVERSIONKEY = 'RPMVERSION'
 FINDERREGX = re.compile('BuildArch:\s+?([\S]+)\s|%package\s+?([\S]+)\s')
@@ -65,7 +68,7 @@ def get_projcet_version(project):
     path = os.path.join(WORKSPACE, project, '__init__.py')
     with open(path, 'rb') as f:
         buffer = f.read(4096)
-    versions = re.findall('^__version__[\s]{0,}?=[\s]{0,}?\'(\S+?)\'', buffer)
+    versions = re.findall("^__version__[\s]{0,}?=[\s]{0,}?\'(\S+?)\'", buffer)
     if len(versions) > 1:
         raise RuntimeError('version in file more then one')
     return versions[0]
@@ -120,7 +123,7 @@ def create_spec():
         RPMINFO['arch'] = arch
     RPMINFO['packages'].extend(packages)
     # 替换spec文件中的version和release
-    replacemap = {RELEASEVERSIONKEY : RPMINFO['release'], RPMVERSIONKEY : RPMINFO['version']}
+    replacemap = {RELEASEVERSIONKEY: RPMINFO['release'], RPMVERSIONKEY: RPMINFO['version']}
     regex = re.compile("(%s)" % "|".join(map(re.escape, replacemap.keys())))
     specbuffer = regex.sub(lambda mo: replacemap[mo.string[mo.start():mo.end()]],
                            specbuffer)
@@ -142,7 +145,7 @@ def build_rpm(specfile):
     print 'call rpm build success'
 
 
-def checker():
+def checker_deploy():
     # 检查生成的rpm包
     prefix = RPMINFO['prefix']
     project = RPMINFO['project']
@@ -151,26 +154,43 @@ def checker():
     dist = RPMINFO['dist']
     packages = RPMINFO['packages']
     arch = RPMINFO['arch']
+    PREFIX = '%s%s' % (prefix, project)
     package_list = []
-    project_package_name = '%s%s-%s-%s.%s.%s.rpm' % (prefix, project, version, release, dist, arch)
+    project_package_name = '%s-%s-%s.%s.%s.rpm' % (PREFIX, version, release, dist, arch)
     package_list.append(os.path.join(RPMSPATH, arch, project_package_name))
-    # 额外安装包
+    # 扩展rpm包
     for package in packages:
-        package_name = '%s%s-%s-%s-%s.%s.%s.rpm' % (prefix, project, package, version, release, dist, arch)
+        package_name = '%s-%s-%s-%s.%s.%s.rpm' % (PREFIX, package, version, release, dist, arch)
         path = os.path.join(RPMSPATH, arch, package_name)
         package_list.append(path)
+    # 检查所有rpm包
     for path in package_list:
         if os.path.exists(path):
             print 'build package: %s' % path
         else:
-            print path, 'not found'
+            raise ValueError('%s not found' % path)
+    for _file in os.listdir(DEPLOYPATH):
+        if _file.startswith(PREFIX):
+            os.remove(os.path.join(DEPLOYPATH, _file))
+    # 移动到rpm源目录
+    for path in package_list:
+        shutil.move(path, DEPLOYPATH)
+
+    # RPM源更新
+
+    args = [CREATEREPO, '--update', os.path.split(DEPLOYPATH)[0]]
+    sub = subprocess.Popen(executable=CREATEREPO, args=args, stderr=subprocess.PIPE)
+    if sub.wait() != 0:
+        print sub.stderr.read()
+        raise RuntimeError('exec %s fail' % CREATEREPO)
+    print 'deploy success'
 
 
 def main():
     create_source()
     specfile = create_spec()
     build_rpm(specfile)
-    checker()
+    checker_deploy()
 
 
 if __name__ == '__main__':
