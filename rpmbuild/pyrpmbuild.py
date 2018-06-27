@@ -58,6 +58,7 @@ def findvaluefromspce(buffer):
         if f[0]:
             if noarch is not None:
                 raise RuntimeError('BuildArch value more then one')
+            noarch = f[0]
         if f[1]:
             packages.append(f[1])
     return noarch, packages
